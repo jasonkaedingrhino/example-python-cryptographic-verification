@@ -25,7 +25,7 @@ assert raw_data[-1].rstrip() == '-----END LICENSE FILE-----', 'Expected footer l
 
 license_b64 = ''.join(raw_data[1:-1]).strip()
     
-license_raw = json.loads( str( base64.b64decode(license_b64), 'ascii' ) )
+license_raw = json.loads( base64.b64decode(license_b64) )
 
 print('encoding: %s' % license_raw['alg'])
 encoding, alg = license_raw['alg'].split('+')
@@ -36,15 +36,17 @@ sig = license_raw['sig']
 enc_bytes = ('license/%s' % enc).encode()
 sig_bytes = base64.b64decode(sig)
 
-public_key = os.environ['KEYGEN_PUBLIC_KEY'].encode()
-
 if alg == 'ed25519':
-    verify_key = ed25519.VerifyingKey(public_key, encoding='hex')
+    verify_key = ed25519.VerifyingKey(
+        os.environ['KEYGEN_PUBLIC_KEY'].encode(),
+        encoding='hex'
+    )
 
     try:
         verify_key.verify(sig_bytes, enc_bytes)
     except ed25519.BadSignatureError:
         exit('!!! LICENSE NOT VALID !!!')
+        
 else:
     verify_key = serialization.load_pem_public_key(
         base64.b64decode(os.environ['KEYGEN_RSA_PUBLIC_KEY']),
