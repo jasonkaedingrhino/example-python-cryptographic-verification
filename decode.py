@@ -6,10 +6,12 @@ import sys
 import ed25519
 
 from datetime import datetime, timezone
+
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidKey, InvalidTag, InvalidSignature
 
 assert len(sys.argv) > 1, 'Expected filename argument'
 
@@ -65,17 +67,32 @@ else:
 if encoding == 'base64':
     license_dec = str( base64.b64decode( license_raw['enc'] ), 'ascii' )
 else:
-    # Digest::SHA256.digest(license.key)
-    # aes = OpenSSL::Cipher::AES256.new(:GCM)
-    # aes.decrypt
-    # secret = OpenSSL::Digest::SHA256.digest(LICENSE_KEY)
-    # ciphertext, iv, tag = license_raw['enc'].split('.')
-    # aes.key = secret
-    # aes.iv = str(base64.base64decode(iv))
-    # aes.auth_tag = str(base64.base64decode(tag))
-    # aes.auth_data = ''
-    # license_dec = aes.update(str(base64.base64decode(ciphertext))) + aes.final
-    exit('!!! NOT BASE64 !!!')
+    assert len(sys.argv) > 2, 'Expected license key argument'
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(sys.argv[2].encode())
+    key = digest.finalize()
+
+    # Split and decode
+    ciphertext, iv, tag = map(
+        lambda p: base64.b64decode(p),
+        license_raw['enc'].split('.')
+    )
+
+    # Decrypt
+    try:
+        aes = Cipher(
+            algorithms.AES(key),
+            modes.GCM(iv, None, len(tag)),
+            default_backend()
+        )
+        dec = aes.decryptor()
+
+        license_dec = dec.update(ciphertext) + \
+            dec.finalize_with_tag(tag)
+
+    except (InvalidKey, InvalidTag):
+            sys.exit('!!! DECRYPTION FAILED !!!')
+
 
 enc = json.loads( license_dec )
 
