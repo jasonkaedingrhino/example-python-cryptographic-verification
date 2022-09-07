@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.exceptions import InvalidKey, InvalidTag, InvalidSignature
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 assert len(sys.argv) > 1, 'Expected filename argument'
 
@@ -66,10 +67,13 @@ else:
     except (InvalidSignature, TypeError):
         exit('!!! LICENSE NOT VALID !!!')
 
+tryAESGCM = True
+
 if encoding == 'base64':
     license_dec = str( base64.b64decode( license_raw['enc'] ), 'ascii' )
 else:
     assert len(sys.argv) > 2, 'Expected license key argument'
+
     digest = hashes.Hash(hashes.SHA256())
     digest.update(sys.argv[2].encode())
     key = digest.finalize()
@@ -79,21 +83,32 @@ else:
         lambda p: base64.b64decode(p),
         license_raw['enc'].split('.')
     )
-
+    
     # Decrypt
-    try:
-        aes = Cipher(
-            algorithms.AES(key),
-            modes.GCM(iv, None, len(tag)),
-            default_backend()
-        )
-        dec = aes.decryptor()
+    if tryAESGCM:
+        aes = AESGCM(key)
+        try:
+            license_dec = aes.decrypt(iv, ciphertext + tag, None)
+        except InvalidKey:
+            sys.exit('!!! DECRYPTION FAILED - INVALID KEY !!!')
+        except InvalidTag:
+            sys.exit('!!! DECRYPTION FAILED - INVALID TAG !!!')
+    else:
+        try:
+            aes = Cipher(
+                algorithms.AES(key),
+                modes.GCM(iv, None, len(tag)),
+                default_backend()
+            )
+            dec = aes.decryptor()
 
-        license_dec = dec.update(ciphertext) + \
-            dec.finalize_with_tag(tag)
+            license_dec = dec.update(ciphertext) + \
+                dec.finalize_with_tag(tag)
 
-    except (InvalidKey, InvalidTag):
-            sys.exit('!!! DECRYPTION FAILED !!!')
+        except InvalidKey:
+            sys.exit('!!! DECRYPTION FAILED - INVALID KEY !!!')
+        except InvalidTag:
+            sys.exit('!!! DECRYPTION FAILED - INVALID TAG !!!')
 
 
 enc = json.loads( license_dec )
